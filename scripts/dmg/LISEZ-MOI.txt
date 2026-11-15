@@ -1,0 +1,17 @@
+ARISTOTETHINKER POUR MAC
+========================
+
+1. Double-clique sur "Installer AristoteThinker.pkg".
+   - Si macOS dit qu'il ne peut pas vérifier le développeur : fais un clic droit
+     (ou Ctrl + clic) sur le fichier > Ouvrir > Ouvrir.
+   - Sur les macOS récents : Réglages Système > Confidentialité et sécurité >
+     "Ouvrir quand même", puis relance l'installeur.
+
+2. L'installeur place :
+     /Library/Audio/Plug-Ins/Components/AristoteThinker.component   (Audio Unit)
+     /Library/Audio/Plug-Ins/VST3/AristoteThinker.vst3              (VST3)
+     /Applications/AristoteThinker.app                              (version autonome)
+
+3. Ableton Live : Settings > Plug-Ins > active "Use Audio Units v2" et
+   "Use VST3 Plug-In System Folders", puis "Rescan".
+   Le plugin est dans le navigateur : Plug-Ins > AristoteAudio > AristoteThinker.

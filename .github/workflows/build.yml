@@ -1,0 +1,104 @@
+# Compile AristoteThinker pour macOS (installeur .dmg : VST3 + AU + app, universel)
+# et Windows (VST3 + app).
+#  - À chaque push : les fichiers sont dans « Artifacts » en bas de la page du run (onglet Actions).
+#  - À chaque tag v* (ex. v0.1.0) : une Release GitHub est créée avec le .dmg et le .zip
+#    en téléchargement direct.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build-mac -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build
+        run: cmake --build build-mac --config Release --target AristoteThinker_VST3 AristoteThinker_AU AristoteThinker_Standalone
+
+      - name: Build installer (.pkg inside a .dmg)
+        run: |
+          set -euo pipefail
+          ART=build-mac/AristoteThinker_artefacts/Release
+          ROOT=pkgroot
+          mkdir -p "$ROOT/Library/Audio/Plug-Ins/Components" "$ROOT/Library/Audio/Plug-Ins/VST3" "$ROOT/Applications"
+          cp -R "$ART/AU/AristoteThinker.component" "$ROOT/Library/Audio/Plug-Ins/Components/"
+          cp -R "$ART/VST3/AristoteThinker.vst3"    "$ROOT/Library/Audio/Plug-Ins/VST3/"
+          cp -R "$ART/Standalone/AristoteThinker.app" "$ROOT/Applications/"
+
+          # Signature ad hoc (pas de compte développeur Apple)
+          codesign --force --deep -s - "$ROOT/Library/Audio/Plug-Ins/Components/AristoteThinker.component"
+          codesign --force --deep -s - "$ROOT/Library/Audio/Plug-Ins/VST3/AristoteThinker.vst3"
+          codesign --force --deep -s - "$ROOT/Applications/AristoteThinker.app"
+
+          # Empêche l'installeur de « déplacer » les bundles vers une ancienne copie
+          pkgbuild --analyze --root "$ROOT" component.plist
+          i=0
+          while /usr/libexec/PlistBuddy -c "Print :$i" component.plist >/dev/null 2>&1; do
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" component.plist
+            i=$((i+1))
+          done
+
+          # Après installation : macOS redécouvre les Audio Units
+          mkdir -p pkgscripts
+          printf '#!/bin/bash\nkillall -9 AudioComponentRegistrar 2>/dev/null || true\nexit 0\n' > pkgscripts/postinstall
+          chmod +x pkgscripts/postinstall
+
+          VERSION=$(sed -nE 's/^project\(AristoteThinker VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          pkgbuild --root "$ROOT" --component-plist component.plist --scripts pkgscripts \
+                   --identifier com.aristoteaudio.aristotethinker --version "$VERSION" \
+                   --install-location / AristoteThinker.pkg
+
+          mkdir -p dmg
+          cp AristoteThinker.pkg "dmg/Installer AristoteThinker.pkg"
+          cp scripts/dmg/LISEZ-MOI.txt dmg/
+          hdiutil create -volname "AristoteThinker" -srcfolder dmg -ov -format UDZO AristoteThinker-macOS.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AristoteThinker-macOS
+          path: AristoteThinker-macOS.dmg
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -A x64
+      - name: Build
+        run: cmake --build build --config Release --target AristoteThinker_VST3 AristoteThinker_Standalone
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item build/AristoteThinker_artefacts/Release/VST3/AristoteThinker.vst3 out/ -Recurse
+          Copy-Item build/AristoteThinker_artefacts/Release/Standalone/AristoteThinker.exe out/
+          Compress-Archive -Path out/* -DestinationPath AristoteThinker-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AristoteThinker-Windows
+          path: AristoteThinker-Windows.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/AristoteThinker-macOS.dmg
+            dist/AristoteThinker-Windows.zip
